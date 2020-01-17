@@ -1,0 +1,85 @@
+#!/usr/bin/env ruby
+
+lib = File.expand_path('../../lib', __FILE__)
+$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+
+require 'govuk-connect'
+
+def main
+  check_ruby_version_greater_than(required_major: 2, required_minor: 0)
+
+  double_dash_index = ARGV.index '--'
+  if double_dash_index
+    # This is used in the case of passing extra options to ssh, the --
+    # acts as a separator, so to avoid optparse interpreting those
+    # options, split ARGV around -- before parsing the options
+    rest = ARGV[double_dash_index + 1, ARGV.length]
+    argv = ARGV[0, double_dash_index]
+
+    ARGV.clear
+    ARGV.concat argv
+
+    options = parse_options
+
+    type, target = ARGV
+  else
+    options = parse_options
+
+    type, target, *rest = ARGV
+  end
+
+  unless type
+    error "error: you must specify the connection type\n"
+
+    STDERR.puts @option_parser.help
+
+    STDERR.puts "\nValid connection types are:\n"
+    TYPES.keys.each do |x|
+      STDERR.puts " - #{x}"
+    end
+    STDERR.puts
+    STDERR.puts "Example commands:"
+    STDERR.puts EXAMPLES
+
+    exit 1
+  end
+
+  handler = TYPES[type]
+
+  unless handler
+    error "error: unknown connection type: #{type}\n"
+
+    STDERR.puts "Valid connection types are:\n"
+    TYPES.keys.each do |x|
+      STDERR.puts " - #{x}"
+    end
+    STDERR.puts
+    STDERR.puts "Example commands:"
+    STDERR.puts EXAMPLES
+
+    exit 1
+  end
+
+  environment = options[:environment]&.to_sym
+
+  unless environment
+    error "error: you must specify the environment\n"
+    STDERR.puts @option_parser.help
+    exit 1
+  end
+
+  unless JUMPBOXES.key? environment
+    error "error: unknown environment '#{environment}'"
+    newline
+    info "Valid environments are:"
+    JUMPBOXES.keys.each { |e| info " - #{e}" }
+    exit 1
+  end
+
+  handler.call(target, environment, rest, options)
+rescue Interrupt
+  # Handle SIGTERM without printing a stacktrace
+  exit 1
+end
+
+main
