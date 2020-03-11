@@ -734,6 +734,93 @@ def ssh(
   exec(*ssh_command)
 end
 
+def scp(
+      target,
+      environment,
+      arguments
+    )
+  # Split something like aws/backend:2 in to :aws, 'backend', 2
+  hosting, name, number = parse_hosting_name_and_number(target)
+
+  # The hosting might not have been provided, so check if necessary
+  hosting ||= hosting_for_target_and_environment(target, environment)
+
+  if name.end_with?('.internal', '.gov.uk')
+    ssh_target = name
+  else
+    domains = get_domains_for_node_class(
+      name,
+      environment,
+      hosting,
+      ssh_username
+    )
+
+    if domains.length.zero?
+      error "error: couldn't find #{name} in #{hosting}/#{environment}"
+
+      node_types = govuk_node_list_classes(environment, hosting)
+
+      similar_node_types = strings_similar_to(name, node_types)
+
+      if similar_node_types.any?
+        info "\ndid you mean:"
+        similar_node_types.each { |s| info " - #{s}" }
+      else
+        info "\nall node types:"
+        node_types.each { |s| info " - #{s}" }
+      end
+
+      exit 1
+    elsif domains.length == 1
+      ssh_target = domains.first
+
+      info "There is #{bold('one machine')} to connect to"
+    else
+      n_machines = bold("#{domains.length} machines")
+      info "There are #{n_machines} of this class"
+
+      if number
+        unless number > 0
+          newline
+          error "error: invalid machine number '#{number}', it must be > 0"
+          exit 1
+        end
+
+        unless number <= domains.length
+          newline
+          error "error: cannot connect to machine number: #{number}"
+          exit 1
+        end
+
+        ssh_target = domains[number - 1]
+        info "Connecting to number #{number}"
+      else
+        ssh_target = domains.sample
+        info "Connecting to a random machine (number #{domains.find_index(ssh_target) + 1})"
+      end
+    end
+  end
+
+  jumpbox = user_at_host(
+    ssh_username,
+    jumpbox_for_environment_and_hosting(environment, hosting)
+  )
+  scp_command = [
+    'ssh',
+    '-o',
+    "ProxyJump=#{jumpbox}",
+    user_at_host(
+      ssh_username,
+      ssh_target
+    ),
+    *arguments
+  ]
+
+  info "\n#{bold('Running command:')} #{scp_command.join(' ')}\n\n"
+
+  exec(*scp_command)
+end
+
 def rabbitmq_root_password_command(hosting, environment)
   hieradata_directory = {
     aws: 'puppet_aws',
@@ -978,6 +1065,30 @@ TYPES = {
       environment,
       port_forward: options[:port_forward],
       additional_arguments: args
+    )
+  end,
+
+  'scp' => Proc.new do |target, environment, args, options|
+    check_for_target(target)
+
+    if options.key? :hosting
+      hosting, name, number = parse_hosting_name_and_number(target)
+      if hosting
+        error "error: hosting specified twice"
+        exit 1
+      end
+
+      target = {
+        hosting: options[:hosting],
+        name: name,
+        number: number
+      }
+    end
+
+    scp(
+      target,
+      environment,
+      args
     )
   end
 }
