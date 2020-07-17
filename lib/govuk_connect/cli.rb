@@ -872,20 +872,23 @@ class GovukConnect::CLI
 
   def types
     @types ||= {
-      "app-console" => proc do |target, environment, args, _options|
+      "app-console" => proc do |target, environment, args, rest, _options|
         check_for_target(target)
         check_for_additional_arguments("app-console", args)
+        check_for_additional_arguments("app-console", rest)
         govuk_app_command(target, environment, "console")
       end,
 
-      "app-dbconsole" => proc do |target, environment, args, _options|
+      "app-dbconsole" => proc do |target, environment, args, rest, _options|
         check_for_target(target)
         check_for_additional_arguments("app-dbconsole", args)
+        check_for_additional_arguments("app-dbconsole", rest)
         govuk_app_command(target, environment, "dbconsole")
       end,
 
-      "rabbitmq" => proc do |target, environment, args, _options|
+      "rabbitmq" => proc do |target, environment, args, rest, _options|
         check_for_additional_arguments("rabbitmq", args)
+        check_for_additional_arguments("rabbitmq", rest)
 
         target ||= "rabbitmq"
 
@@ -906,8 +909,9 @@ class GovukConnect::CLI
         )
       end,
 
-      "sidekiq-monitoring" => proc do |target, environment, args, _options|
+      "sidekiq-monitoring" => proc do |target, environment, args, rest, _options|
         check_for_additional_arguments("sidekiq-monitoring", args)
+        check_for_additional_arguments("sidekiq-monitoring", rest)
         ssh(
           target || "backend",
           environment,
@@ -915,7 +919,7 @@ class GovukConnect::CLI
         )
       end,
 
-      "ssh" => proc do |target, environment, args, options|
+      "ssh" => proc do |target, environment, args, rest, options|
         check_for_target(target)
         target = target_from_options(target, options)
 
@@ -923,7 +927,7 @@ class GovukConnect::CLI
           target,
           environment,
           port_forward: options[:port_forward],
-          additional_arguments: args,
+          additional_arguments: [args, rest].flatten,
         )
       end,
     }
@@ -932,22 +936,20 @@ class GovukConnect::CLI
   def main(argv)
     check_ruby_version_greater_than(required_major: 2, required_minor: 0)
 
+    extra = []
+
     double_dash_index = argv.index "--"
     if double_dash_index
-      # This is used in the case of passing extra options to ssh, the --
-      # acts as a separator, so to avoid optparse interpreting those
-      # options, split argv around -- before parsing the options
-      rest = argv[double_dash_index + 1, argv.length]
+      # This is used in the case of passing extra options to ssh and
+      # scp, the -- acts as a separator, so to avoid optparse
+      # interpreting those options, split argv around -- before
+      # parsing the options
+      extra = argv[double_dash_index + 1, argv.length]
       argv = argv[0, double_dash_index]
-
-      options = parse_options(argv)
-
-      type, target = argv
-    else
-      options = parse_options(argv)
-
-      type, target, *rest = argv
     end
+
+    options = parse_options(argv)
+    type, target, *rest = argv
 
     unless type
       error "error: you must specify the connection type\n"
@@ -997,7 +999,7 @@ class GovukConnect::CLI
       exit 1
     end
 
-    handler.call(target, environment, rest, options)
+    handler.call(target, environment, rest, extra, options)
   rescue Interrupt
     # Handle SIGTERM without printing a stacktrace
     exit 1
