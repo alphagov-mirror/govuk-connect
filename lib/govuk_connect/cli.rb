@@ -294,7 +294,7 @@ class GovukConnect::CLI
     classes
   end
 
-  def get_domains_for_node_class(target, environment, hosting, ssh_username)
+  def get_domains_for_node_class(target, environment, hosting)
     command = [
       "ssh",
       "-o",
@@ -843,7 +843,6 @@ class GovukConnect::CLI
         name,
         environment,
         hosting,
-        ssh_username,
       )
 
       if domains.length.zero?
